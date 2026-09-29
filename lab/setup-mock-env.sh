@@ -234,13 +234,18 @@ if [ "$MODE" = "--hardened" ]; then
     chmod 640 /etc/opt/CARKaim/vault/appprovideruser.cred.entropy
     chmod 640 /var/opt/CARKaim/logs/APPConsole.log
     chmod 640 /var/opt/CARKaim/logs/APPAudit.log
+    chmod 640 /var/opt/CARKaim/logs/APPTrace.log
     chmod 640 /var/opt/CARKaim/cache/file.opy
+    chmod 600 /var/opt/CARKaim/cache/appprovider_cache.db
     echo -e "${GREEN}[+] Hardened permissions applied${NC}"
 else
-    # Intentional misconfigurations
-    chmod 644 /etc/opt/CARKaim/vault/appprovideruser.cred.entropy  # world-readable — FINDING
-    chmod 644 /var/opt/CARKaim/logs/APPConsole.log                  # world-readable — FINDING
-    chmod 644 /var/opt/CARKaim/cache/file.opy                       # world-readable — FINDING
+    # Intentional misconfigurations — only the ones relevant to CyberArk CP
+    chmod 644 /etc/opt/CARKaim/vault/appprovideruser.cred.entropy  # world-readable — FINDING P2
+    chmod 644 /var/opt/CARKaim/logs/APPConsole.log                  # world-readable — FINDING P2
+    chmod 644 /var/opt/CARKaim/logs/APPAudit.log                    # world-readable — FINDING P2
+    chmod 644 /var/opt/CARKaim/logs/APPTrace.log                    # world-readable — FINDING P2
+    chmod 644 /var/opt/CARKaim/cache/file.opy                       # world-readable — FINDING P2
+    chmod 600 /var/opt/CARKaim/cache/appprovider_cache.db           # correctly restricted (not a finding)
     echo -e "${RED}[+] Vulnerable permissions applied (intentional misconfigurations)${NC}"
 fi
 
@@ -295,8 +300,11 @@ if [ "$MODE" != "--hardened" ]; then
     echo -e "  ${YELLOW}Expected findings in vulnerable mode:${NC}"
     echo -e "  ${RED}  [MEDIUM P2]${NC} .entropy file world-readable (CWE-732)"
     echo -e "  ${RED}  [MEDIUM P2]${NC} VaultAccessInterval = 365 days (CWE-613)"
-    echo -e "  ${RED}  [MEDIUM P2]${NC} Log file world-readable (CWE-532)"
-    echo -e "  ${CYAN}  [OK]${NC}       .cred file correctly restricted"
+    echo -e "  ${RED}  [MEDIUM P2]${NC} Log files world-readable (CWE-532)"
+    echo -e "  ${RED}  [LOW P3]   ${NC} Information disclosure in logs (CWE-532)"
+    echo -e "  ${CYAN}  [OK]       ${NC} .cred file correctly restricted (640)"
+    echo -e "  ${CYAN}  [OK]       ${NC} Cache database correctly restricted (600)"
+    echo -e "  ${CYAN}  [OK]       ${NC} Installation directory — no world-writable files"
     echo ""
 fi
 echo -e "  ${BWHITE}To remove the mock environment:${NC}"

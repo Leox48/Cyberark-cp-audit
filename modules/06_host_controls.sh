@@ -52,62 +52,82 @@ run_host_controls() {
     # ── PATH hijacking analysis ────────────────────────
     echo -e "\n  ${BWHITE}[*] PATH Hijacking Analysis${NC}"
 
-    # Get PATH for current user and application users
-    USERS_TO_CHECK=("$(whoami)")
+    # Skip PATH hijacking check when running as root:
+    # root can write to system directories by definition — this would always
+    # produce false positives and is not meaningful in a root context.
+    if [ "$EUID" -eq 0 ]; then
+        finding_info "Running as root — PATH hijacking check skipped"
+        finding_info "Re-run as the application user to get meaningful results"
+    else
+        USERS_TO_CHECK=("$(whoami)")
 
-    # Add detected application users
-    APP_USERS=$(ps aux 2>/dev/null \
-        | grep -iE "java|python|tomcat|jboss" \
-        | grep -v "grep\|root" \
-        | awk '{print $1}' | sort -u)
+        # Add detected application users (non-root only)
+        APP_USERS=$(ps aux 2>/dev/null \
+            | grep -iE "java|python|tomcat|jboss" \
+            | grep -v "grep\|root" \
+            | awk '{print $1}' | sort -u)
 
-    for u in $APP_USERS; do
-        USERS_TO_CHECK+=("$u")
-    done
+        for u in $APP_USERS; do
+            USERS_TO_CHECK+=("$u")
+        done
 
-    for check_user in "${USERS_TO_CHECK[@]}"; do
-        if [ "$check_user" = "$(whoami)" ]; then
-            USER_PATH=$(env | grep "^PATH=" | cut -d'=' -f2)
-        else
-            USER_PATH=$(sudo -n -u "$check_user" env 2>/dev/null | grep "^PATH=" | cut -d'=' -f2)
-        fi
-
-        if [ -n "$USER_PATH" ]; then
-            finding_info "PATH for $check_user: $USER_PATH"
-            WRITABLE_IN_PATH=""
-            IFS=':' read -ra PATH_DIRS <<< "$USER_PATH"
-            for dir in "${PATH_DIRS[@]}"; do
-                if [ -d "$dir" ] && [ -w "$dir" ]; then
-                    WRITABLE_IN_PATH="$WRITABLE_IN_PATH $dir"
-                fi
-            done
-
-            if [ -n "$WRITABLE_IN_PATH" ]; then
-                finding_medium "Writable directories in PATH for user '$check_user' — PATH hijacking possible — CWE-427"
-                for wdir in $WRITABLE_IN_PATH; do
-                    print_evidence "Writable: $wdir"
-                done
+        for check_user in "${USERS_TO_CHECK[@]}"; do
+            if [ "$check_user" = "$(whoami)" ]; then
+                USER_PATH=$(env | grep "^PATH=" | cut -d'=' -f2)
             else
-                finding_ok "No writable directories in PATH for '$check_user'"
+                USER_PATH=$(sudo -n -u "$check_user" env 2>/dev/null | grep "^PATH=" | cut -d'=' -f2)
             fi
-        fi
-    done
+
+            if [ -n "$USER_PATH" ]; then
+                finding_info "PATH for $check_user: $USER_PATH"
+                WRITABLE_IN_PATH=""
+                IFS=':' read -ra PATH_DIRS <<< "$USER_PATH"
+                for dir in "${PATH_DIRS[@]}"; do
+                    # Only flag directories writable by non-root users
+                    # Skip standard system directories owned by root with expected permissions
+                    if [ -d "$dir" ] && [ -w "$dir" ]; then
+                        DIR_OWNER=$(stat -c "%U" "$dir" 2>/dev/null)
+                        DIR_PERMS=$(stat -c "%a" "$dir" 2>/dev/null)
+                        # Flag only if writable by others (not just because we're the owner)
+                        OTHERS_WRITE=$(( (8#${DIR_PERMS:-000}) & 2 ))
+                        if [ "$OTHERS_WRITE" -ne 0 ] || [ "$DIR_OWNER" = "$check_user" ]; then
+                            WRITABLE_IN_PATH="$WRITABLE_IN_PATH $dir"
+                        fi
+                    fi
+                done
+
+                if [ -n "$WRITABLE_IN_PATH" ]; then
+                    finding_medium "Writable directories in PATH for user '$check_user' — PATH hijacking possible — CWE-427"
+                    for wdir in $WRITABLE_IN_PATH; do
+                        print_evidence "Writable: $wdir ($(stat -c "%a %U" "$wdir" 2>/dev/null))"
+                    done
+                else
+                    finding_ok "No writable directories in PATH for '$check_user'"
+                fi
+            fi
+        done
+    fi
 
     # ── SUID/SGID binaries ────────────────────────────
     echo -e "\n  ${BWHITE}[*] SUID/SGID Binaries${NC}"
 
-    # Only check in non-standard locations (skip /usr/bin, /bin defaults)
-    SUID_CUSTOM=$(find /opt /home /tmp /var /srv 2>/dev/null \
-        -perm /4000 -o -perm /2000 2>/dev/null \
-        | grep -v "^/proc\|^/sys")
+    # Only check for actual SUID/SGID files (not directories) in non-standard locations
+    # -type f ensures we only match files, not directories with setgid bit
+    # Excludes known safe system paths and journal directories
+    SUID_CUSTOM=$(find /opt /home /tmp /var/tmp /srv 2>/dev/null \
+        -type f \( -perm -4000 -o -perm -2000 \) \
+        ! -path "*/systemd-journal/*" \
+        ! -path "*/journal/*" \
+        2>/dev/null)
 
     if [ -n "$SUID_CUSTOM" ]; then
-        finding_medium "SUID/SGID binaries found in non-standard locations — CWE-250"
+        SUID_COUNT=$(echo "$SUID_CUSTOM" | wc -l)
+        finding_medium "$SUID_COUNT SUID/SGID file(s) found in non-standard locations — CWE-250"
         echo "$SUID_CUSTOM" | while read -r f; do
             print_evidence "$(ls -la "$f" 2>/dev/null)"
         done
     else
-        finding_ok "No SUID/SGID binaries in non-standard locations"
+        finding_ok "No SUID/SGID files in non-standard locations"
     fi
 
     # ── World-writable directories ─────────────────────
