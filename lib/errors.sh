@@ -202,8 +202,23 @@ check_cp_daemon() {
     fi
 
     if ! $daemon_running; then
-        finding_warn "appprovider daemon is NOT running — AppID tests will fail (CP must be running)"
+        # Check if we are in a mock environment:
+        # The mock clipasswordsdk is a standalone bash script — it does not
+        # require a running daemon. Detect this by checking if the SDK binary
+        # is a shell script rather than a real ELF binary.
+        if [ -n "${CP_SDK_BIN:-}" ] && [ -f "$CP_SDK_BIN" ]; then
+            FIRST_LINE=$(head -1 "$CP_SDK_BIN" 2>/dev/null)
+            if echo "$FIRST_LINE" | grep -q "^#!.*bash\|^#!.*sh"; then
+                finding_info "Mock environment detected — appprovider daemon check skipped"
+                finding_info "The mock SDK is a standalone script and does not require a running daemon"
+                return 0
+            fi
+        fi
+
+        # Real CP binary but daemon not running
+        finding_warn "appprovider daemon is NOT running — AppID tests will fail"
         finding_info "To start CP: sudo systemctl start aimprv.service"
+        finding_info "If CP starts on demand, ignore this warning and re-run"
         return 1
     fi
 
