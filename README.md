@@ -89,9 +89,59 @@ sudo ./cyberark-cp-audit.sh -m discovery,sudoers,appid -a MockApp -s MockSafe
 
 ## Output Example
 
-[![asciicast](https://asciinema.org/a/slul2Iy1WSubi8yl.svg)](https://asciinema.org/a/slul2Iy1WSubi8yl)
+```
+╔══════════════════════════════════════════════╣ CyberArk CP — Installation Discovery
+  [OK]    Installation directory found: /opt/CARKaim
+  [OK]    SDK binary found: /opt/CARKaim/sdk/clipasswordsdk
+  [OK]    Main configuration file found: /etc/opt/CARKaim/conf/basic_appprovider.conf
+  [OK]    CP Version: 14.2.5.2
+  [OK]    CP process running — PID: 2237, User: root
+  [MEDIUM P2] appprovider daemon is running as ROOT — CWE-250
+
+╔══════════════════════════════════════════════╣ File & Directory Permission Analysis
+  [OK]    Credential file permissions are restricted
+  [MEDIUM P2] Entropy file is world-readable — CWE-732
+  Evidence: -rw-r--r-- 1 root root 1056 appprovideruser.cred.entropy
+  [MEDIUM P2] Permission mismatch: .cred (640) vs .entropy (644)
+
+╔══════════════════════════════════════════════╣ CP Configuration Analysis
+  [MEDIUM P2] VaultAccessInterval is 365 days — CWE-613
+              In an incident response scenario, revoked credentials will continue
+              to be distributed from local cache for up to 365 days.
+
+╔══════════════════════════════════════════════╣ Sudoers & Privilege Analysis
+  [HIGH P1] Accounts with unrestricted NOPASSWD: ALL sudo — CWE-269
+  Evidence: nxautomation (ALL) NOPASSWD: ALL
+  [HIGH P1] Passwordless sudo rules allowing user impersonation — CWE-269
+  Evidence: %Admins.App.Operations ALL=(root) NOPASSWD: /usr/bin/su - appuser
+  [CRITICAL P0] Target user 'appuser' matches application process user
+                Attack chain: compromise group → sudo su - appuser → clipasswordsdk → extract credentials
+
+╔══════════════════════════════════════════════╣ AppID Restriction Testing
+  [-] current_user: APPAP133E — OSUser restriction ACTIVE ✓
+  [-] root: APPAP133E — OSUser restriction ACTIVE ✓
+  [!] appuser: APPAP004E — Authentication PASSED — Safe/Object not found
+      → User 'appuser' is authorized for AppID 'MyAppID'
+  [HIGH P1] Path restriction NOT configured — CWE-284
+            Any process running as 'appuser' can extract credentials
+
+╔══════════════════════════════════════════════╗
+║           AUDIT SUMMARY                      ║
+╚══════════════════════════════════════════════╝
+  Critical (P0): 1
+  High     (P1): 3
+  Medium   (P2): 4
+  Low      (P3): 2
+  Total findings: 10
+
+  Full report saved to: /tmp/cyberark_cp_audit_20260922_103045.txt
+```
 
 ---
+
+## Demo
+
+![cyberark-cp-audit demo](assets/demo.gif)
 
 ## Options Reference
 
