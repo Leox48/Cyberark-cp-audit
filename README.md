@@ -3,7 +3,7 @@
 > A security audit tool for CyberArk Credential Provider (AIM/CP) deployments on Linux.  
 > Inspired by [linPEAS](https://github.com/carlospolop/PEASS-ng) — focused entirely on CyberArk CP attack surface.
 
-<p>![CyberArk-thumbnail](assets/thumbnail.png)</p>
+![CyberArk-thumbnail](assets/thumbnail.png)
 
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
