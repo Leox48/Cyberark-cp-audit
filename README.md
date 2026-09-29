@@ -196,6 +196,7 @@ The included `lab/setup-mock-env.sh` script creates a simulated CP environment o
 
 ```bash
 # 1. Create the vulnerable mock environment
+chmod +x ./lab/setup-mock-env.sh
 sudo ./lab/setup-mock-env.sh --vuln
 
 # 2. Run passive audit (no AppID testing)
