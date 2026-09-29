@@ -152,24 +152,41 @@ run_host_controls() {
     [ -z "$VAULT_PORT" ] && VAULT_PORT="1858"
 
     if [ -n "$VAULT_ADDR" ]; then
-        CONN_CHECK=$(ss -tnp 2>/dev/null | grep ":$VAULT_PORT")
-        if [ -n "$CONN_CHECK" ]; then
-            finding_ok "Active connection to Vault ($VAULT_ADDR:$VAULT_PORT) detected"
-            finding_info "$CONN_CHECK"
-        else
-            finding_info "No active connection to Vault on port $VAULT_PORT (may be idle)"
+        finding_info "Vault address : $VAULT_ADDR"
+        finding_info "Vault port    : $VAULT_PORT"
+
+        # Detect mock environment — skip connectivity test for known mock IPs
+        # and when the SDK binary is a shell script (no real Vault exists)
+        IS_MOCK=false
+        if [ -n "${CP_SDK_BIN:-}" ] && [ -f "$CP_SDK_BIN" ]; then
+            FIRST_LINE=$(head -1 "$CP_SDK_BIN" 2>/dev/null)
+            echo "$FIRST_LINE" | grep -q "^#!.*bash\|^#!.*sh" && IS_MOCK=true
         fi
 
-        # Check if port is reachable
-        if command -v nc &>/dev/null; then
-            if nc -z -w3 "$VAULT_ADDR" "$VAULT_PORT" 2>/dev/null; then
-                finding_ok "Vault is reachable at $VAULT_ADDR:$VAULT_PORT"
+        if $IS_MOCK; then
+            finding_info "Mock environment — Vault connectivity check skipped (no real Vault)"
+        else
+            # Check for active established connection
+            CONN_CHECK=$(ss -tnp 2>/dev/null | grep ":$VAULT_PORT")
+            if [ -n "$CONN_CHECK" ]; then
+                finding_ok "Active connection to Vault ($VAULT_ADDR:$VAULT_PORT) detected"
+                finding_info "$CONN_CHECK"
             else
-                finding_warn "Vault at $VAULT_ADDR:$VAULT_PORT is not reachable from this host"
+                finding_info "No active connection to Vault on port $VAULT_PORT (may be idle — normal if CP is not serving requests)"
+            fi
+
+            # TCP reachability check
+            if command -v nc &>/dev/null; then
+                if nc -z -w3 "$VAULT_ADDR" "$VAULT_PORT" 2>/dev/null; then
+                    finding_ok "Vault is reachable at $VAULT_ADDR:$VAULT_PORT"
+                else
+                    finding_warn "Vault at $VAULT_ADDR:$VAULT_PORT is not reachable — check network/firewall"
+                    finding_info "This may be expected if the CP host cannot directly reach the Vault network"
+                fi
             fi
         fi
     else
-        finding_warn "Vault address not determined — skipping connectivity check"
+        finding_warn "Vault address not found in vault.ini — skipping connectivity check"
     fi
 
     # ── OS and kernel info ─────────────────────────────
