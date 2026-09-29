@@ -39,7 +39,7 @@ This tool automates the manual checks typically performed during a CyberArk CP s
 ## Companion Research
 
 This tool is part of the [pam-security-assessments](https://github.com/Leox48/pam-security-assessments) repository.  
-Full methodology, attack chains, and hardening guidance: [cyberark/credential-provider-methodology.md](https://github.com/Leox48/pam-security-assessments/blob/main/cyberark/credential-provider-methodology.md)
+Full methodology, attack chains, and hardening guidance: [cyberark/credential-provider-methodology.md](https://github.com/Leox48/pam-security-assessments/blob/main/cyberark/cyberark-cp-security-research.md)
 
 ---
 
@@ -54,14 +54,17 @@ chmod +x cyberark-cp-audit.sh
 # Full audit (recommended: run with sudo for complete results)
 sudo ./cyberark-cp-audit.sh
 
-# Full audit with AppID restriction testing
-sudo ./cyberark-cp-audit.sh -a MyAppID -s MySafe
+# Passive audit — no AppID testing
+sudo ./cyberark-cp-audit.sh -n
+
+# Full audit with AppID restriction testing (real environment)
+sudo ./cyberark-cp-audit.sh -a <YourAppID> -s <YourSafe>
+
+# Full audit using the mock lab environment (see Lab Environment section)
+sudo ./cyberark-cp-audit.sh -a MockApp -s MockSafe
 
 # Discovery and permissions only
 sudo ./cyberark-cp-audit.sh -m discovery,permissions
-
-# Skip AppID testing (passive audit only)
-sudo ./cyberark-cp-audit.sh -n
 ```
 
 ---
@@ -79,7 +82,7 @@ sudo ./cyberark-cp-audit.sh -n
 
 Run specific modules with `-m`:
 ```bash
-sudo ./cyberark-cp-audit.sh -m discovery,sudoers,appid -a MyAppID -s MySafe
+sudo ./cyberark-cp-audit.sh -m discovery,sudoers,appid -a MockApp -s MockSafe
 ```
 
 ---
@@ -177,19 +180,67 @@ Options:
 
 ## Lab Environment (Testing without CyberArk)
 
-You don't need CyberArk installed to test most of this tool.
+You don't need a real CyberArk installation to test this tool.
+The included `lab/setup-mock-env.sh` script creates a simulated CP environment on any Linux host.
 
-A Docker-based lab environment is provided to simulate a host with:
-- Fake CP installation structure (`/opt/CARKaim/`, config files, mock binaries)
-- Intentionally misconfigured permissions (world-readable `.entropy`, etc.)
-- Misconfigured sudoers entries
+### Mock credentials
+
+| Parameter | Value |
+|---|---|
+| AppID | `MockApp` |
+| Safe | `MockSafe` |
+| Authorized OS User | `mockappuser` |
+| Mock password returned | `MockP@ssw0rd!2026` |
+
+### Quick lab setup
 
 ```bash
-# Coming soon
-docker-compose up cyberark-cp-lab
+# 1. Create the vulnerable mock environment
+sudo ./lab/setup-mock-env.sh --vuln
+
+# 2. Run passive audit (no AppID testing)
+sudo ./cyberark-cp-audit.sh -n
+
+# 3. Run full audit with AppID testing
+sudo ./cyberark-cp-audit.sh -a MockApp -s MockSafe
+
+# 4. Manually verify the mock AppID restriction works
+#    This should return the mock password (authorized user):
+sudo -u mockappuser /opt/CARKaim/sdk/clipasswordsdk GetPassword \
+  -p AppDescs.AppID=MockApp \
+  -p "Query=Safe=MockSafe" \
+  -o Password
+# → MockP@ssw0rd!2026
+
+#    This should be blocked (unauthorized user):
+/opt/CARKaim/sdk/clipasswordsdk GetPassword \
+  -p AppDescs.AppID=MockApp \
+  -p "Query=Safe=MockSafe" \
+  -o Password
+# → APPAP133E Failed to verify application authentication data: OSUser "youruser" is unauthorized
+
+# 5. Compare with the hardened configuration
+sudo ./lab/setup-mock-env.sh --clean
+sudo ./lab/setup-mock-env.sh --hardened
+sudo ./cyberark-cp-audit.sh -n
+
+# 6. Cleanup
+sudo ./lab/setup-mock-env.sh --clean
 ```
 
-Until the Docker lab is ready, you can create a minimal mock environment manually:
+### What the mock simulates
+
+| Component | Real CyberArk | Mock |
+|---|---|---|
+| `/opt/CARKaim/` directory | CP binaries | Fake structure + mock SDK script |
+| `clipasswordsdk` | Calls real CP daemon | Bash script returning real error codes |
+| `vault.ini` | Real Vault IP | Fake IP `192.168.100.50` |
+| `.cred` file | Encrypted service account | Fake encrypted-looking content |
+| `.entropy` file | Real entropy material | Fake content, intentionally world-readable |
+| `main_appprovider.conf` | Real config | Identical structure, VaultAccessInterval=365d |
+| OS User restriction | Vault-enforced | Enforced by the mock SDK script |
+
+### Manual mock environment (alternative)
 
 ```bash
 # Create fake CP structure

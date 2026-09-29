@@ -29,6 +29,11 @@ clean_env() {
     rm -rf /opt/CARKaim
     rm -rf /etc/opt/CARKaim
     rm -rf /var/opt/CARKaim
+    # Remove mock application user if it was created by this script
+    if id "mockappuser" &>/dev/null; then
+        userdel -r mockappuser 2>/dev/null || true
+        echo -e "${GREEN}[+] Mock user 'mockappuser' removed${NC}"
+    fi
     echo -e "${GREEN}[+] Mock environment removed${NC}"
     exit 0
 }
@@ -242,26 +247,58 @@ fi
 chmod 700 /var/opt/CARKaim/cache
 chmod +x /opt/CARKaim/sdk/clipasswordsdk
 
+# ── Mock application user ──────────────────────────
+# This user simulates the OS User authorized in the AppID restriction.
+# The mock clipasswordsdk returns a password only when called as 'mockappuser'.
+echo -e "${YELLOW}[*] Creating mock application user 'mockappuser'...${NC}"
+
+if id "mockappuser" &>/dev/null; then
+    echo -e "${CYAN}    User 'mockappuser' already exists — skipping creation${NC}"
+else
+    useradd -r -s /bin/bash -m -c "CyberArk CP mock application user" mockappuser 2>/dev/null || {
+        echo -e "${YELLOW}    Warning: could not create 'mockappuser' — AppID auth test will show OSUser unauthorized${NC}"
+        echo -e "${YELLOW}    This is expected on systems where useradd is restricted${NC}"
+    }
+    if id "mockappuser" &>/dev/null; then
+        echo -e "${GREEN}    User 'mockappuser' created${NC}"
+    fi
+fi
+
 # ── Summary ───────────────────────────────────────
 echo ""
 echo -e "${GREEN}[+] Mock CP environment created successfully!${NC}"
 echo ""
 echo -e "  Mode: ${YELLOW}$MODE${NC}"
 echo ""
-echo -e "  ${CYAN}Run the audit:${NC}"
-echo -e "  sudo ./cyberark-cp-audit.sh -n"
+echo -e "  ${BWHITE}Mock credentials:${NC}"
+echo -e "  AppID          : ${CYAN}MockApp${NC}"
+echo -e "  Safe           : ${CYAN}MockSafe${NC}"
+echo -e "  Authorized user: ${CYAN}mockappuser${NC}  (OS User restriction)"
 echo ""
-echo -e "  ${CYAN}Run with AppID testing (mock):${NC}"
-echo -e "  sudo ./cyberark-cp-audit.sh -a MockApp -s MockSafe"
+echo -e "  ${BWHITE}Step 1 — Passive audit (no AppID testing):${NC}"
+echo -e "  ${WHITE}sudo ./cyberark-cp-audit.sh -n${NC}"
+echo ""
+echo -e "  ${BWHITE}Step 2 — Full audit with AppID restriction testing:${NC}"
+echo -e "  ${WHITE}sudo ./cyberark-cp-audit.sh -a MockApp -s MockSafe${NC}"
+echo ""
+echo -e "  ${BWHITE}Step 3 — Test credential extraction as authorized user:${NC}"
+echo -e "  ${WHITE}sudo -u mockappuser /opt/CARKaim/sdk/clipasswordsdk GetPassword \\${NC}"
+echo -e "  ${WHITE}  -p AppDescs.AppID=MockApp -p \"Query=Safe=MockSafe\" -o Password${NC}"
+echo -e "  ${CYAN}  → Expected output: MockP@ssw0rd!2026${NC}"
+echo ""
+echo -e "  ${BWHITE}Step 4 — Verify restriction blocks other users:${NC}"
+echo -e "  ${WHITE}/opt/CARKaim/sdk/clipasswordsdk GetPassword \\${NC}"
+echo -e "  ${WHITE}  -p AppDescs.AppID=MockApp -p \"Query=Safe=MockSafe\" -o Password${NC}"
+echo -e "  ${CYAN}  → Expected output: APPAP133E OSUser unauthorized${NC}"
 echo ""
 if [ "$MODE" != "--hardened" ]; then
     echo -e "  ${YELLOW}Expected findings in vulnerable mode:${NC}"
-    echo -e "  - [MEDIUM P2] appprovider process info (mock)"
-    echo -e "  - [MEDIUM P2] .entropy file world-readable"
-    echo -e "  - [MEDIUM P2] VaultAccessInterval = 365 days"
-    echo -e "  - [MEDIUM P2] Log file world-readable"
+    echo -e "  ${RED}  [MEDIUM P2]${NC} .entropy file world-readable (CWE-732)"
+    echo -e "  ${RED}  [MEDIUM P2]${NC} VaultAccessInterval = 365 days (CWE-613)"
+    echo -e "  ${RED}  [MEDIUM P2]${NC} Log file world-readable (CWE-532)"
+    echo -e "  ${CYAN}  [OK]${NC}       .cred file correctly restricted"
     echo ""
 fi
-echo -e "  ${CYAN}To remove the mock environment:${NC}"
-echo -e "  sudo ./lab/setup-mock-env.sh --clean"
+echo -e "  ${BWHITE}To remove the mock environment:${NC}"
+echo -e "  ${WHITE}sudo ./lab/setup-mock-env.sh --clean${NC}"
 echo ""
